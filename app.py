@@ -22,7 +22,7 @@ def health():
     try:
         db = SessionLocal()
         db.execute(select(func.getdate()))
-        return jsonify({"ok": "Todo Bien!!!"})
+        return jsonify({"ok": "Todo Bien, API funcionando"}), 200
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
     
