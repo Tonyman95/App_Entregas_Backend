@@ -16,6 +16,16 @@ def shutdown_session(exception=None):
     SessionLocal.remove()
 
 
+@app.get('/')
+def index():
+    try:
+        db = SessionLocal()
+        db.execute(select(func.getdate()))
+        return jsonify({"ok": "API de Gestión de Entregas"}), 200
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.get('/health')
 def health():
 # Prueba rápida de conexión
