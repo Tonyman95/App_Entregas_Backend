@@ -3,8 +3,9 @@ from flask_cors import CORS
 from sqlalchemy import select, and_, or_, func
 from sqlalchemy.exc import IntegrityError
 from database import SessionLocal
-from models import Base, Periodo, Beneficio, Entrega, Usuario
+from models import Base, Periodo, Beneficio, Entrega, Usuario, Trabajador, Auditoria
 from validators import is_valid_rut
+from datetime import datetime, date
 
 
 app = Flask(__name__)
@@ -42,9 +43,9 @@ def health():
 @app.get('/beneficios')
 def list_beneficios():
     db = SessionLocal()
-    q = db.execute(select(Beneficio).order_by(Beneficio.NombreBeneficio))
+    q = db.execute(select(Beneficio).order_by(Beneficio.nombre_beneficio))
     items = [
-        {"codigo": b.Codigo, "nombre_beneficio": b.NombreBeneficio}
+        {"codigo": b.codigo, "nombre_beneficio": b.nombre_beneficio}
         for (b,) in q.all()
     ]
     return jsonify(items)
@@ -58,7 +59,7 @@ def create_beneficio():
     if not codigo or not nombre:
         return jsonify({"error": "codigo y nombre_beneficio son obligatorios"}), 400
     db = SessionLocal()
-    b = Beneficio(Codigo=codigo, NombreBeneficio=nombre)
+    b = Beneficio(codigo=codigo, nombre_beneficio=nombre)
     db.add(b)
     try:
         db.commit()
@@ -66,6 +67,57 @@ def create_beneficio():
         db.rollback()
         return jsonify({"error": "Ya existe un beneficio con ese codigo"}), 409
     return jsonify({"codigo": b.Codigo, "nombre_beneficio": b.NombreBeneficio}), 201
+
+
+# Beneficios - single / update / delete
+@app.get('/beneficios/<string:codigo>')
+def get_beneficio(codigo: str):
+    db = SessionLocal()
+    b = db.get(Beneficio, codigo)
+    if not b:
+        return jsonify({"error": "Beneficio no encontrado"}), 404
+    return jsonify({
+        "codigo": b.codigo,
+        "nombre_beneficio": b.nombre_beneficio,
+        "descripcion": b.descripcion,
+        "activo": bool(b.activo),
+        "creado_en": b.creado_en.isoformat() if getattr(b, 'creado_en', None) else None
+    })
+
+
+@app.put('/beneficios/<string:codigo>')
+def update_beneficio(codigo: str):
+    db = SessionLocal()
+    b = db.get(Beneficio, codigo)
+    if not b:
+        return jsonify({"error": "Beneficio no encontrado"}), 404
+    data = request.get_json(force=True)
+    nombre = data.get('nombre_beneficio')
+    descripcion = data.get('descripcion')
+    activo = data.get('activo')
+    if nombre is not None:
+        b.nombre_beneficio = nombre.strip()
+    if descripcion is not None:
+        b.descripcion = descripcion
+    if activo is not None:
+        # accept boolean or truthy/falsy values
+        if isinstance(activo, bool):
+            b.activo = activo
+        else:
+            b.activo = str(activo).lower() in ('1','true','yes')
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.delete('/beneficios/<string:codigo>')
+def delete_beneficio(codigo: str):
+    db = SessionLocal()
+    b = db.get(Beneficio, codigo)
+    if not b:
+        return jsonify({"error": "Beneficio no encontrado"}), 404
+    db.delete(b)
+    db.commit()
+    return jsonify({"ok": True}), 200
 
 
 # ------------------ Periodos ------------------
@@ -76,12 +128,95 @@ def list_periodos():
     items = [
         {
             "codigo": p.Codigo,
+            "nombre_periodo": getattr(p, 'nombre_periodo', None),
             "fecha_inicio": p.FechaInicio.isoformat(),
             "fecha_final": p.FechaFinal.isoformat()
         }
         for (p,) in q.all()
     ]
     return jsonify(items)
+
+
+# Periodos - create / single / update / delete (CRUD para administrador)
+@app.post('/periodos')
+def create_periodo():
+    db = SessionLocal()
+    data = request.get_json(force=True)
+    codigo = (data.get('codigo') or '').strip()
+    nombre = (data.get('nombre_periodo') or '').strip()
+    fecha_inicio = data.get('fecha_inicio')
+    fecha_final = data.get('fecha_final')
+    if not all([codigo, nombre, fecha_inicio, fecha_final]):
+        return jsonify({"error": "codigo, nombre_periodo, fecha_inicio y fecha_final son obligatorios"}), 400
+    try:
+        fi = date.fromisoformat(fecha_inicio)
+        ff = date.fromisoformat(fecha_final)
+    except Exception:
+        return jsonify({"error": "Formato de fecha inválido. Use YYYY-MM-DD"}), 400
+    if ff < fi:
+        return jsonify({"error": "fecha_final no puede ser anterior a fecha_inicio"}), 400
+    # crear
+    p = Periodo(Codigo=codigo, nombre_periodo=nombre, FechaInicio=fi, FechaFinal=ff)
+    db.add(p)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return jsonify({"error": "Ya existe un periodo con ese codigo"}), 409
+    return jsonify({"codigo": p.Codigo, "nombre_periodo": p.nombre_periodo}), 201
+
+
+@app.get('/periodos/<string:codigo>')
+def get_periodo(codigo: str):
+    db = SessionLocal()
+    p = db.get(Periodo, codigo)
+    if not p:
+        return jsonify({"error": "Periodo no encontrado"}), 404
+    return jsonify({
+        "codigo": p.Codigo,
+        "nombre_periodo": p.nombre_periodo,
+        "fecha_inicio": p.FechaInicio.isoformat() if p.FechaInicio else None,
+        "fecha_final": p.FechaFinal.isoformat() if p.FechaFinal else None,
+    })
+
+
+@app.put('/periodos/<string:codigo>')
+def update_periodo(codigo: str):
+    db = SessionLocal()
+    p = db.get(Periodo, codigo)
+    if not p:
+        return jsonify({"error": "Periodo no encontrado"}), 404
+    data = request.get_json(force=True)
+    nombre = data.get('nombre_periodo')
+    fecha_inicio = data.get('fecha_inicio')
+    fecha_final = data.get('fecha_final')
+    if nombre is not None:
+        p.nombre_periodo = nombre.strip()
+    if fecha_inicio is not None:
+        try:
+            p.FechaInicio = date.fromisoformat(fecha_inicio)
+        except Exception:
+            return jsonify({"error": "Formato fecha_inicio inválido"}), 400
+    if fecha_final is not None:
+        try:
+            p.FechaFinal = date.fromisoformat(fecha_final)
+        except Exception:
+            return jsonify({"error": "Formato fecha_final inválido"}), 400
+    if p.FechaFinal < p.FechaInicio:
+        return jsonify({"error": "fecha_final no puede ser anterior a fecha_inicio"}), 400
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.delete('/periodos/<string:codigo>')
+def delete_periodo(codigo: str):
+    db = SessionLocal()
+    p = db.get(Periodo, codigo)
+    if not p:
+        return jsonify({"error": "Periodo no encontrado"}), 404
+    db.delete(p)
+    db.commit()
+    return jsonify({"ok": True}), 200
 
 
 # ------------------ Entregas ------------------
@@ -105,7 +240,7 @@ def list_entregas():
     if beneficio:
         conditions.append(Entrega.Beneficio_cod == beneficio)
     if estado:
-        conditions.append(Entrega.Estado == estado)
+        conditions.append(Entrega.Estado == (estado or '').strip().upper())
     if fecha_desde:
         conditions.append(func.convert(func.date, Entrega.FechaEntrega) >= fecha_desde)
     if fecha_hasta:
@@ -135,7 +270,7 @@ def list_entregas():
             "beneficio_cod": e.Beneficio_cod,
             "periodo_cod": e.Periodo_cod,
             "estado": e.Estado,
-            "tiene_firma": bool(e.FirmaBase64)
+            "tiene_firma": False
         })
     return jsonify({"page": page, "size": size, "total": total, "items": items})
 
@@ -155,7 +290,7 @@ def get_entrega(eid: int):
         "beneficio_cod": e.Beneficio_cod,
         "periodo_cod": e.Periodo_cod,
         "estado": e.Estado,
-        "firma_base64": e.FirmaBase64,
+        "firma_base64": None,
     })
 
 
@@ -169,6 +304,7 @@ def create_entrega():
     beneficio = (data.get('beneficio_cod') or '').strip()
     periodo = (data.get('periodo_cod') or '').strip()
     firma = data.get('firma_base64') # opcional
+    fecha_entrega = data.get('fecha_entrega')
 
 
     # Validaciones
@@ -192,19 +328,52 @@ def create_entrega():
     if db.get(Periodo, periodo) is None:
         return jsonify({"error": "periodo_cod no existe"}), 400
 
+    # Aseguramos que exista el trabajador; si no existe, lo creamos
+    trabajador = db.get(Trabajador, rut)
+    if trabajador is None:
+        trabajador = Trabajador(
+            rut=rut,
+            primer_nombre=nombre,
+            primer_apellido=apellido,
+            email=data.get('email')
+        )
+        db.add(trabajador)
+        db.commit()
+        db.refresh(trabajador)
+
+
+    # FechaEntrega es NOT NULL en la nueva definición; si no viene, la ponemos ahora
+    if fecha_entrega:
+        try:
+            fecha = datetime.fromisoformat(fecha_entrega)
+        except Exception:
+            fecha = datetime.utcnow()
+    else:
+        fecha = datetime.utcnow()
 
     e = Entrega(
         Rut=rut,
-        Nombre=nombre,
-        Apellido=apellido,
+        FechaEntrega=fecha,
         Beneficio_cod=beneficio,
         Periodo_cod=periodo,
-        FirmaBase64=firma,
-        Estado='pendiente'
+        Estado='PENDIENTE'
     )
     db.add(e)
     db.commit()
     db.refresh(e)
+
+    # Si se entregó firma, registramos un evento de auditoría con el detalle (no guardamos la firma en la tabla Entregas)
+    if firma:
+        a = Auditoria(
+            tabla_nombre='Entregas',
+            llave_registro=str(e.ID),
+            accion='FIRMA',
+            usuario_nombre=None,
+            detalle=(firma[:2000] if isinstance(firma, str) else None)
+        )
+        db.add(a)
+        db.commit()
+        db.refresh(a)
     return jsonify({"id": e.ID}), 201
 
 
@@ -222,13 +391,20 @@ def update_entrega(eid: int):
 
 
     if estado is not None:
-        estado = estado.strip().lower()
-        if estado not in ('pendiente', 'entregado', 'rechazado'):
+        estado = estado.strip().upper()
+        if estado not in ('PENDIENTE', 'ENTREGADO', 'CANCELADO', 'ANULADO'):
             return jsonify({"error": "estado inválido"}), 400
         e.Estado = estado
     if firma is not None:
-    # Guardamos tal cual (Base64)
-        e.FirmaBase64 = firma
+        # Guardamos la firma como un evento de auditoría
+        a = Auditoria(
+            tabla_nombre='Entregas',
+            llave_registro=str(e.ID),
+            accion='FIRMA',
+            usuario_nombre=None,
+            detalle=(firma[:2000] if isinstance(firma, str) else None)
+        )
+        db.add(a)
 
 
     db.commit()
@@ -249,9 +425,9 @@ def reporte_entregas_por_beneficio():
             Entrega.Periodo_cod.label('periodo'),
             Entrega.Beneficio_cod.label('beneficio'),
             func.count().label('total'),
-            func.sum(func.iif(Entrega.Estado == 'entregado', 1, 0)).label('entregados'),
-            func.sum(func.iif(Entrega.Estado == 'pendiente', 1, 0)).label('pendientes'),
-            func.sum(func.iif(Entrega.Estado == 'rechazado', 1, 0)).label('rechazados')
+            func.sum(func.iif(Entrega.Estado == 'ENTREGADO', 1, 0)).label('entregados'),
+            func.sum(func.iif(Entrega.Estado == 'PENDIENTE', 1, 0)).label('pendientes'),
+            func.sum(func.iif(Entrega.Estado == 'CANCELADO', 1, 0)).label('rechazados')
         ).where(Entrega.Periodo_cod == periodo)
         .group_by(Entrega.Periodo_cod, Entrega.Beneficio_cod)
         .order_by(Entrega.Beneficio_cod)
