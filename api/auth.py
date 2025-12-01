@@ -70,7 +70,7 @@ def create_auth_blueprint(jwt):
             return jsonify({"access_token": access, "refresh_token": refresh}), 200
         except Exception as e:
             db.rollback()
-            logging.warning('No se pudo almacenar RefreshToken (continuando): %s', e)
+            logging.exception('No se pudo almacenar RefreshToken (continuando): %s', e)
             return jsonify({"error": "Error interno del servidor"}), 500
         finally:
             db.close()

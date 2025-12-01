@@ -12,6 +12,14 @@ def create_app():
     CORS(app)
     jwt = JWTManager(app)
 
+    # Garantiza que las tablas existan (no modifica las ya creadas)
+    try:
+        from database import engine
+        from models import Base
+        Base.metadata.create_all(bind=engine)
+    except Exception as e:
+        app.logger.warning("No se pudieron validar/crear tablas al iniciar la app: %s", e)
+
     # Import and register blueprints
     from api.auth import create_auth_blueprint, require_perm
     auth_bp = create_auth_blueprint(jwt)
