@@ -69,3 +69,6 @@ def create_app():
             return jsonify({"ok": False, "error": str(e)}), 500
 
     return app
+
+# Expose the Flask application object for WSGI servers like gunicorn.
+app = create_app()
