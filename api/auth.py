@@ -20,7 +20,9 @@ ROLE_PERMISSIONS = {
     },
     'rrhh': {
         'trabajadores.create', 'trabajadores.read', 'trabajadores.update',
-        'beneficios.read', 'periodos.read', 'entregas.read', 'reportes.read'
+        'beneficios.read', 'periodos.read', 'entregas.read', 'reportes.read',
+        'sucursales.read', 'sucursales.update', 'sucursales.create' 'beneficios.create',
+        'beneficios.update', 'periodos.create', 'periodos.update'
     },
     'admin': {'*'}
 }
