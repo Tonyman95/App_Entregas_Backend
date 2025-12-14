@@ -314,4 +314,22 @@ def create_entregas_blueprint(require_perm):
         finally:
             db.close()
 
+    @bp.delete('/<int:id>')
+    @require_perm('entregas.delete')
+    def delete_entrega(id):
+        db = SessionLocal()
+        try:
+            from models import Entrega
+            e = db.execute(select(Entrega).where(Entrega.ID == id)).scalar_one_or_none()
+            if not e:
+                return abort(404)
+            db.delete(e)
+            db.commit()
+            return jsonify({'ok': True, 'ID': id}), 200
+        except Exception as ex:
+            db.rollback()
+            return jsonify({'error': str(ex)}), 500
+        finally:
+            db.close()
+
     return bp
