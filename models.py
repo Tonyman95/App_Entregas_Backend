@@ -103,6 +103,7 @@ class Entrega(Base):
     CodSucursal = Column('cod_sucursal', String(20), ForeignKey('Sucursal.codigo'), nullable=True)
     TipoContrato = Column('tipo_contrato', String(30), nullable=True)
     Usuario_creador = Column('usuario_creador', Integer, ForeignKey('Usuarios.ID'), nullable=True)
+    qr_payload = Column('qr_payload', Text, nullable=True)
     creado_en = Column(DateTime(timezone=False), server_default=text("SYSUTCDATETIME()"), nullable=False)
     modificado_en = Column(DateTime(timezone=False), nullable=True)
 

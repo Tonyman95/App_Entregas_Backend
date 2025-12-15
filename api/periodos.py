@@ -20,6 +20,8 @@ def create_periodos_blueprint(require_perm):
                 items.append({
                     'codigo': getattr(r, 'Codigo', None),
                     'nombre_periodo': getattr(r, 'nombre_periodo', None),
+                    'fecha_inicio': getattr(r, 'FechaInicio', None).isoformat() if getattr(r, 'FechaInicio', None) else None,
+                    'fecha_final': getattr(r, 'FechaFinal', None).isoformat() if getattr(r, 'FechaFinal', None) else None,
                 })
             return jsonify(items)
         finally:

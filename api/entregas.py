@@ -1,18 +1,27 @@
+import base64
 import csv
+import hashlib
 import io
+import json
 import os
 from datetime import datetime, date
 
 from flask import Blueprint, jsonify, request, abort
 from flask_jwt_extended import get_jwt_identity
 from openpyxl import load_workbook
+from cryptography.fernet import Fernet
 from database import SessionLocal
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 def create_entregas_blueprint(require_perm):
     bp = Blueprint('entregas', __name__, url_prefix='/entregas')
     ESTADOS_VALIDOS = {'PENDIENTE', 'ENTREGADO', 'CANCELADO', 'ANULADO'}
     TIPOS_CONTRATO = {'INDEFINIDO', 'PLAZO FIJO', 'CONTRATO', 'EVENTUAL'}
+
+    def _get_fernet():
+        secret = os.getenv('ENTREGAS_QR_SECRET') or os.getenv('JWT_SECRET_KEY', 'dev-secret-change')
+        key = base64.urlsafe_b64encode(hashlib.sha256(secret.encode('utf-8')).digest())
+        return Fernet(key)
 
     def _has_data(value):
         if value is None:
@@ -44,6 +53,20 @@ def create_entregas_blueprint(require_perm):
                     return val
                 return str(val).strip()
         return None
+
+    def _encrypt_entrega_payload(entrega, fernet=None):
+        f = fernet or _get_fernet()
+        payload = {
+            'ID': getattr(entrega, 'ID', None),
+            'Rut': getattr(entrega, 'Rut', None),
+            'Beneficio_cod': getattr(entrega, 'Beneficio_cod', None),
+            'Estado': getattr(entrega, 'Estado', None),
+            'Periodo_cod': getattr(entrega, 'Periodo_cod', None),
+            'CodSucursal': getattr(entrega, 'CodSucursal', None),
+            'TipoContrato': getattr(entrega, 'TipoContrato', None),
+            'FechaEntrega': getattr(entrega, 'FechaEntrega', None).isoformat() if getattr(entrega, 'FechaEntrega', None) else None,
+        }
+        return f.encrypt(json.dumps(payload, ensure_ascii=False).encode('utf-8')).decode('utf-8')
 
     def _parse_fecha(raw_fecha):
         if raw_fecha is None or (isinstance(raw_fecha, str) and raw_fecha.strip() == ''):
@@ -143,6 +166,7 @@ def create_entregas_blueprint(require_perm):
                 'Periodo_cod': getattr(e, 'Periodo_cod', None),
                 'CodSucursal': getattr(e, 'CodSucursal', None),
                 'TipoContrato': getattr(e, 'TipoContrato', None),
+                'qr': getattr(e, 'qr_payload', None),
             })
         finally:
             db.close()
@@ -171,10 +195,20 @@ def create_entregas_blueprint(require_perm):
         db = SessionLocal()
         try:
             from models import Entrega
+            fernet = _get_fernet()
             e = Entrega(Rut=rut, FechaEntrega=fecha, Beneficio_cod=beneficio, Estado=estado, Periodo_cod=periodo, CodSucursal=sucursal, TipoContrato=tipo, Usuario_creador=usuario_creador)
             db.add(e)
+            db.flush()  # asegura ID para incluir en el QR
+            qr_payload = _encrypt_entrega_payload(e, fernet)
+            e.qr_payload = qr_payload
             db.commit()
-            return jsonify({'ok': True, 'ID': e.ID}), 201
+            if not e.qr_payload:
+                db.execute(
+                    update(Entrega).where(Entrega.ID == e.ID).values(qr_payload=qr_payload)
+                )
+                db.commit()
+            db.refresh(e)  # valida que se guardó en DB
+            return jsonify({'ok': True, 'ID': e.ID, 'qr': qr_payload, 'qr_db': getattr(e, 'qr_payload', None)}), 201
         except Exception as ex:
             db.rollback()
             return jsonify({'error': str(ex)}), 500
@@ -264,6 +298,7 @@ def create_entregas_blueprint(require_perm):
         created = []
         try:
             from models import Entrega
+            fernet = _get_fernet()
             for item in parsed_rows:
                 try:
                     ent = Entrega(
@@ -277,8 +312,17 @@ def create_entregas_blueprint(require_perm):
                         Usuario_creador=item['usuario_creador'],
                     )
                     db.add(ent)
+                    db.flush()  # obtener ID antes de generar el QR
+                    qr_payload = _encrypt_entrega_payload(ent, fernet)
+                    ent.qr_payload = qr_payload
                     db.commit()
-                    created.append({'fila': item['fila'], 'id': ent.ID})
+                    if not ent.qr_payload:
+                        db.execute(
+                            update(Entrega).where(Entrega.ID == ent.ID).values(qr_payload=qr_payload)
+                        )
+                        db.commit()
+                    db.refresh(ent)
+                    created.append({'fila': item['fila'], 'id': ent.ID, 'qr': qr_payload, 'qr_db': getattr(ent, 'qr_payload', None)})
                 except Exception as row_exc:
                     db.rollback()
                     errores.append({'fila': item['fila'], 'error': str(row_exc)})
