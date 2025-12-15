@@ -133,15 +133,45 @@ def create_entregas_blueprint(require_perm):
     def list_entregas():
         db = SessionLocal()
         try:
-            from models import Entrega
+            from models import Entrega, Trabajador, Beneficio, Periodo
             rows = db.execute(select(Entrega)).scalars().all()
             items = []
             for r in rows:
+                trabajador = getattr(r, 'trabajador', None) if hasattr(r, 'trabajador') else None
+                beneficio = None
+                periodo = None
+                try:
+                    # Lazy relationships; if not configured, fallback to None
+                    beneficio = db.execute(select(Beneficio).where(Beneficio.codigo == getattr(r, 'Beneficio_cod', None))).scalar_one_or_none()
+                except Exception:
+                    beneficio = None
+                try:
+                    periodo = db.execute(select(Periodo).where(Periodo.Codigo == getattr(r, 'Periodo_cod', None))).scalar_one_or_none()
+                except Exception:
+                    periodo = None
+
+                rango_retiro = None
+                if periodo and getattr(periodo, 'FechaInicio', None) and getattr(periodo, 'FechaFinal', None):
+                    rango_retiro = f"{periodo.FechaInicio:%d %b %Y} - {periodo.FechaFinal:%d %b %Y}"
+
                 items.append({
                     'ID': getattr(r, 'ID', None),
-                    'Trabajador_Rut': getattr(r, 'Rut', None),
+                    'Rut': getattr(r, 'Rut', None),
+                    'Nombre': getattr(trabajador, 'primer_nombre', None) if trabajador else None,
+                    'Apellido': getattr(trabajador, 'primer_apellido', None) if trabajador else None,
+                    'Correo': getattr(trabajador, 'email', None) if trabajador else None,
                     'Beneficio_cod': getattr(r, 'Beneficio_cod', None),
+                    'Beneficio_nombre': getattr(beneficio, 'nombre_beneficio', None) if beneficio else None,
+                    'Periodo_cod': getattr(r, 'Periodo_cod', None),
+                    'Periodo_nombre': getattr(periodo, 'nombre_periodo', None) if periodo else None,
+                    'Periodo_inicio': getattr(periodo, 'FechaInicio', None).isoformat() if periodo and getattr(periodo, 'FechaInicio', None) else None,
+                    'Periodo_final': getattr(periodo, 'FechaFinal', None).isoformat() if periodo and getattr(periodo, 'FechaFinal', None) else None,
+                    'RangoRetiro': rango_retiro,
+                    'CodSucursal': getattr(r, 'CodSucursal', None),
+                    'TipoContrato': getattr(r, 'TipoContrato', None),
                     'Estado': getattr(r, 'Estado', None),
+                    'FechaEntrega': getattr(r, 'FechaEntrega', None).isoformat() if getattr(r, 'FechaEntrega', None) else None,
+                    'qr': getattr(r, 'qr_payload', None),
                 })
             return jsonify(items)
         finally:
