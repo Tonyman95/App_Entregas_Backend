@@ -112,6 +112,7 @@ class Entrega(Base):
     __table_args__ = (
         CheckConstraint("estado IN ('PENDIENTE','ENTREGADO','CANCELADO','ANULADO')", name='CHK_Entregas_Estado'),
         CheckConstraint("tipo_contrato IS NULL OR tipo_contrato IN ('INDEFINIDO','PLAZO FIJO','CONTRATO','EVENTUAL')", name='CHK_Entregas_TipoContrato'),
+        {'implicit_returning': False},  # deshabilita OUTPUT para compatibilidad con triggers en SQL Server
     )
 
     # Propiedades convenientes para compatibilidad con el código existente
