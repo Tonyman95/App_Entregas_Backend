@@ -22,7 +22,7 @@ ROLE_PERMISSIONS = {
         'trabajadores.create', 'trabajadores.read', 'trabajadores.update',
         'beneficios.read', 'periodos.read', 'entregas.read', 'reportes.read',
         'sucursales.read', 'sucursales.update', 'sucursales.create' 'beneficios.create',
-        'beneficios.update', 'periodos.create', 'periodos.update'
+        'beneficios.update', 'periodos.create', 'periodos.update', 'entregas.create'
     },
     'admin': {'*'}
 }
